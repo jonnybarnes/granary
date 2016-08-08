@@ -17,13 +17,13 @@ import copy
 import logging
 import mimetypes
 import re
-import urlparse
+import urllib.parse
 import html2text
 
 from bs4 import BeautifulSoup
 import requests
 
-import appengine_config
+from . import appengine_config
 from oauth_dropins.webutil import util
 
 ME = '@me'
@@ -132,7 +132,7 @@ class SourceMeta(type):
     return cls
 
 
-class Source(object):
+class Source(object, metaclass=SourceMeta):
   """Abstract base class for a source (e.g. Facebook, Twitter).
 
   Concrete subclasses must override the class constants below and implement
@@ -148,7 +148,6 @@ class Source(object):
       placeholder for the post URL and (optionally) a %(content)s placeholder
       for the post content.
   """
-  __metaclass__ = SourceMeta
 
   RESPONSE_CACHE_TIME = 5 * 60  # 5m
 
@@ -561,10 +560,9 @@ class Source(object):
     candidates += [match.expand(r'http://\1/\2') for match in
                    Source._PERMASHORTCITATION_RE.finditer(content)]
 
-    candidates = set(filter(None,
-      (util.clean_url(url) for url in candidates
+    candidates = set([_f for _f in (util.clean_url(url) for url in candidates
        # heuristic: ellipsized URLs are probably incomplete, so omit them.
-       if url and not url.endswith('...') and not url.endswith(u'…'))))
+       if url and not url.endswith('...') and not url.endswith('…')) if _f])
 
     # check for redirect and add their final urls
     redirects = {}  # maps final URL to original URL for redirects
@@ -579,7 +577,7 @@ class Source(object):
     originals = set()
     mentions = set()
     for url in util.dedupe_urls(candidates):
-      if url in redirects.values():
+      if url in list(redirects.values()):
         # this is a redirected original URL. postpone and handle it when we hit
         # its final URL so that we know the final domain.
         continue
@@ -659,7 +657,7 @@ class Source(object):
     author = event.get('author')
 
     rsvps = []
-    for verb, field in RSVP_TO_EVENT.items():
+    for verb, field in list(RSVP_TO_EVENT.items()):
       for actor in event.get(field, []):
         rsvp = {'objectType': 'activity',
                 'verb': verb,
@@ -792,7 +790,7 @@ class Source(object):
 
     Returns: string, or None
     """
-    return urlparse.urlparse(url).path.rstrip('/').rsplit('/', 1)[-1] or None
+    return urllib.parse.urlparse(url).path.rstrip('/').rsplit('/', 1)[-1] or None
 
   def _content_for_create(self, obj, ignore_formatting=False, prefer_name=False,
                           strip_first_video_tag=False):
@@ -833,4 +831,4 @@ class Source(object):
     return summary or (
             (name or content) if prefer_name else
             (content or name)
-           ) or u''
+           ) or ''

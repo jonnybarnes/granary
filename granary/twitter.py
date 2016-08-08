@@ -15,23 +15,23 @@ __author__ = ['Ryan Barrett <granary@ryanb.org>']
 import collections
 import datetime
 import itertools
-import httplib
+import http.client
 import json
 import logging
 import mimetypes
 import re
 import socket
-import urllib
-import urllib2
-import urlparse
+import urllib.request, urllib.parse, urllib.error
+import urllib.request, urllib.error, urllib.parse
+import urllib.parse
 
-import appengine_config
+from . import appengine_config
 
 from bs4 import BeautifulSoup
 import requests
 import brevity
 
-import source
+from . import source
 from oauth_dropins import twitter_auth
 from oauth_dropins.webutil import util
 
@@ -241,7 +241,7 @@ class Twitter(source.Source):
             activities += [self._make_like(tweet, _user()) for tweet in liked]
       elif group_id == source.SEARCH:
         url = API_SEARCH % {
-          'q': urllib.quote_plus(search_query),
+          'q': urllib.parse.quote_plus(search_query),
           'count': count,
         }
       elif group_id in (source.FRIENDS, source.ALL):
@@ -264,7 +264,7 @@ class Twitter(source.Source):
         if group_id == source.SEARCH:
           tweet_obj = tweet_obj.get('statuses', [])
         tweets = tweet_obj[start_index:]
-      except urllib2.HTTPError, e:
+      except urllib.error.HTTPError as e:
         if e.code == 304:  # Not Modified, from a matching ETag
           tweets = []
         else:
@@ -312,7 +312,7 @@ class Twitter(source.Source):
 
           try:
             tweet['retweets'] = self.urlopen(url)
-          except urllib2.URLError, e:
+          except urllib.error.URLError as e:
             code, _ = util.interpret_http_exception(e)
             if code != '404':  # 404 means the original tweet was deleted
               raise
@@ -340,7 +340,7 @@ class Twitter(source.Source):
           url = HTML_FAVORITES % id
           try:
             html = json.loads(util.urlopen(url).read()).get('htmlUsers', '')
-          except urllib2.URLError, e:
+          except urllib.error.URLError as e:
             util.interpret_http_exception(e)  # just log it
             continue
           likes = self.favorites_html_to_likes(tweet, html)
@@ -392,7 +392,7 @@ class Twitter(source.Source):
         author = reply['actor']['username']
         if author not in mentions:
           url = API_SEARCH % {
-            'q': urllib.quote_plus('@' + author),
+            'q': urllib.parse.quote_plus('@' + author),
             'count': 100,
           }
           if min_id is not None:
@@ -431,7 +431,7 @@ class Twitter(source.Source):
     """
     # get @-name mentions
     url = API_SEARCH % {
-      'q': urllib.quote_plus('@' + username),
+      'q': urllib.parse.quote_plus('@' + username),
       'count': 100,
     }
     if min_id is not None:
@@ -468,11 +468,11 @@ class Twitter(source.Source):
     # https://dev.twitter.com/rest/public/search
     for batch in [
         tweets[i:i + QUOTE_SEARCH_BATCH_SIZE]
-        for i in xrange(0, len(tweets), QUOTE_SEARCH_BATCH_SIZE)
+        for i in range(0, len(tweets), QUOTE_SEARCH_BATCH_SIZE)
     ]:
       batch_ids = [t['id_str'] for t in batch]
       url = API_SEARCH % {
-        'q': urllib.quote_plus(' OR '.join(batch_ids)),
+        'q': urllib.parse.quote_plus(' OR '.join(batch_ids)),
         'count': 100,
       }
       if min_id is not None:
@@ -608,7 +608,7 @@ class Twitter(source.Source):
       # TODO: this doesn't handle an in-reply-to username that's a prefix of
       # another username already mentioned, e.g. in reply to @foo when content
       # includes @foobar.
-      parsed = urlparse.urlparse(base_url)
+      parsed = urllib.parse.urlparse(base_url)
       parts = parsed.path.split('/')
       if len(parts) < 2 or not parts[1]:
         raise ValueError('Could not determine author of in-reply-to URL %s' % base_url)
@@ -622,7 +622,7 @@ class Twitter(source.Source):
       # hard-code it to twitter.com. index #1 is netloc.
       parsed = list(parsed)
       parsed[1] = self.DOMAIN
-      base_url = urlparse.urlunparse(parsed)
+      base_url = urllib.parse.urlunparse(parsed)
 
     # need a base_url with the tweet id for the embed HTML below. do this
     # *after* checking the real base_url for in-reply-to author username.
@@ -660,7 +660,7 @@ class Twitter(source.Source):
           description='<span class="verb">favorite</span> <a href="%s">'
                       'this tweet</a>:\n%s' % (base_url, self.embed_post(base_obj)))
       else:
-        data = urllib.urlencode({'id': base_id})
+        data = urllib.parse.urlencode({'id': base_id})
         self.urlopen(API_POST_FAVORITE, data=data)
         resp = {'type': 'like'}
 
@@ -678,12 +678,12 @@ class Twitter(source.Source):
           description='<span class="verb">retweet</span> <a href="%s">'
                       'this tweet</a>:\n%s' % (base_url, self.embed_post(base_obj)))
       else:
-        data = urllib.urlencode({'id': base_id})
+        data = urllib.parse.urlencode({'id': base_id})
         resp = self.urlopen(API_POST_RETWEET % base_id, data=data)
         resp['type'] = 'repost'
 
     elif type in ('note', 'article') or is_reply:  # a tweet
-      content = unicode(content).encode('utf-8')
+      content = str(content).encode('utf-8')
       data = {'status': content}
 
       if is_reply:
@@ -727,7 +727,7 @@ class Twitter(source.Source):
       if preview:
         return source.creation_result(content=preview_content, description=description)
       else:
-        resp = self.urlopen(API_POST_TWEET, data=urllib.urlencode(data))
+        resp = self.urlopen(API_POST_TWEET, data=urllib.parse.urlencode(data))
         resp['type'] = 'comment' if is_reply else 'post'
 
     elif (verb and verb.startswith('rsvp-')) or verb == 'invite':
@@ -805,7 +805,7 @@ class Twitter(source.Source):
       logging.info('Got: %s', resp.text)
       try:
         ids.append(json.loads(resp.text)['media_id_string'])
-      except ValueError, KeyError:
+      except ValueError as KeyError:
         logging.exception("Couldn't parse response: %s", resp.text)
         raise
 
@@ -844,7 +844,7 @@ class Twitter(source.Source):
       return source.creation_result(abort=True, error_plain=msg, error_html=msg)
 
     # INIT
-    media_id = self.urlopen(API_UPLOAD_MEDIA, data=urllib.urlencode({
+    media_id = self.urlopen(API_UPLOAD_MEDIA, data=urllib.parse.urlencode({
       'command': 'INIT',
       'media_type': 'video/mp4',
       'total_bytes': length,
@@ -871,7 +871,7 @@ class Twitter(source.Source):
       i += 1
 
     # FINALIZE
-    self.urlopen(API_UPLOAD_MEDIA, data=urllib.urlencode({
+    self.urlopen(API_UPLOAD_MEDIA, data=urllib.parse.urlencode({
       'command': 'FINALIZE',
       'media_id': media_id,
     }))
@@ -914,22 +914,22 @@ class Twitter(source.Source):
         except (ValueError, TypeError):
           msg = 'Non-JSON response! (Synthetic HTTP error generated by Bridgy.)'
           logging.exception(msg)
-          raise urllib2.HTTPError(API_BASE + url, 503, msg, {}, None)
+          raise urllib.error.HTTPError(API_BASE + url, 503, msg, {}, None)
       else:
         return resp
 
     if ('data' not in kwargs and not
-        (isinstance(url, urllib2.Request) and url.get_method() == 'POST')):
+        (isinstance(url, urllib.request.Request) and url.get_method() == 'POST')):
       # this is a GET. retry up to 3x if we deadline.
       for attempt in range(RETRIES):
         try:
           return request()
-        except httplib.HTTPException, e:
+        except http.client.HTTPException as e:
           if not str(e).startswith('Deadline exceeded'):
             raise
-        except socket.error, e:
+        except socket.error as e:
           pass
-        except urllib2.HTTPError, e:
+        except urllib.error.HTTPError as e:
           code, body = util.interpret_http_exception(e)
           if code is None or int(code) / 100 != 5:
             raise
@@ -954,14 +954,14 @@ class Twitter(source.Source):
     url = base_obj.get('url')
     if url:
       try:
-        parsed = urlparse.urlparse(url)
+        parsed = urllib.parse.urlparse(url)
         parts = parsed.path.split('/')
         if len(parts) >= 3 and parts[-2] == 'photo':
           base_obj['id'] = parts[-3]
           parsed = list(parsed)
           parsed[2] = '/'.join(parts[:-2])
-          base_obj['url'] = urlparse.urlunparse(parsed)
-      except BaseException, e:
+          base_obj['url'] = urllib.parse.urlunparse(parsed)
+      except BaseException as e:
         logging.error(
           "Couldn't parse object URL %s : %s. Falling back to default logic.",
           url, e)
@@ -1104,7 +1104,7 @@ class Twitter(source.Source):
         'displayName': '',
         'indices': t['indices'],
       } for t in media if t.get('indices')}
-    obj['tags'].extend(indices_to_media.values())
+    obj['tags'].extend(list(indices_to_media.values()))
 
     # sort tags by indices, since they need to be processed (below) in order.
     obj['tags'].sort(key=lambda t: t.get('indices'))
@@ -1170,7 +1170,7 @@ class Twitter(source.Source):
 
     for field in 'entities', 'extended_entities':
       # kind is media, urls, hashtags, user_mentions, symbols, etc
-      for kind, values in tweet.get(field, {}).items():
+      for kind, values in list(tweet.get(field, {}).items()):
         for v in values:
           id = v.get('id_str') or v.get('id') or v.get('url') or v.get('text')
           if id in seen_ids[kind]:
